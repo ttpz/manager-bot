@@ -140,7 +140,7 @@ bot.on("callback_query", (callbackQuery) => {
 			channels.length
 				? channels.map(
 						({ channelId, groupId }) =>
-							`Канал ${channelId}, ID - ${groupId}`
+							`Канал ${channelId}, ID - ${groupId} \n`
 				  )
 				: "Пусто"
 		}`;
