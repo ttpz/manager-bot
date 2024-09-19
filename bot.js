@@ -7,12 +7,12 @@ const bot = new TelegramBot(process.env.TELEGRAM_TOKEN, { polling: true });
 let managerId = null; // Переменная для хранения ID менеджера
 
 // Объект для хранения каналов и групп
-let channels = []; // Пример структуры: { channelId: 1, groupId: -4591803123, users: [] }
+let channels = []; // Пример структуры: { chatName: "Chat Title", groupId: -4591803123, users: [] }
 
 // Добавление канала
-function addChannel(channelId, groupId) {
-	channels.push({ channelId, groupId, users: [] });
-	console.log(`Канал ${channelId} добавлен с группой ${groupId}`);
+function addChannel(chatName, groupId) {
+	channels.push({ chatName, groupId, users: [] });
+	console.log(`Канал "${chatName}" добавлен с группой ${groupId}`);
 }
 
 // Удаление канала
@@ -26,12 +26,22 @@ function getCurrentChannel(groupId) {
 	return channels.find((channel) => channel.groupId === groupId);
 }
 
+// Обфускация никнейма
+function obfuscateUsername(username) {
+	if (username.length < 3) return username; // Не обрезаем короткие имена
+	const halfLength = Math.floor(username.length / 2);
+	return (
+		username.slice(0, halfLength) + "*".repeat(username.length - halfLength)
+	);
+}
+
 // Пересылка сообщения менеджеру
-function forwardToManager(channelId, messageText) {
+function forwardToManager(chatName, messageText, username) {
+	const obfuscatedUsername = obfuscateUsername(username);
 	if (managerId) {
 		bot.sendMessage(
 			managerId,
-			`Сообщение из канала ${channelId}: ${messageText}`
+			`Сообщение из чата "${chatName}" от пользователя ${obfuscatedUsername}: ${messageText}`
 		);
 	} else {
 		console.error("Ошибка: ID менеджера не установлен.");
@@ -58,16 +68,16 @@ const mainMenu = {
 bot.on("my_chat_member", (msg) => {
 	const groupId = msg.chat.id;
 	if (msg.new_chat_member.status === "member") {
-		const channelId = channels.length ? channels.length + 1 : 1; // Присвоение нового номера канала
+		const chatName = msg.chat.title || `Group ${groupId}`; // Используем название чата
 
 		// Сохраняем канал
-		addChannel(channelId, groupId);
+		addChannel(chatName, groupId);
 
 		if (managerId) {
 			// Уведомление менеджера
 			bot.sendMessage(
 				managerId,
-				`Бот был добавлен в группу с ID ${groupId}. Канал ${channelId} подключен.`
+				`Бот был добавлен в группу с ID ${groupId}. Канал "${chatName}" подключен.`
 			);
 
 			// Уведомление группы
@@ -102,9 +112,11 @@ bot.on("message", (msg) => {
 
 		if (channel) {
 			// Пересылаем сообщение менеджеру
+			const username = msg.from.username || msg.from.first_name;
 			forwardToManager(
-				channel.channelId,
-				msg.text ?? "Неизвестный символ"
+				channel.chatName,
+				msg.text ?? "Неизвестный символ",
+				username
 			);
 		} else {
 			console.log(
@@ -139,14 +151,14 @@ bot.on("callback_query", (callbackQuery) => {
 		let response = `Список каналов:\n${
 			channels.length
 				? channels.map(
-						({ channelId, groupId }) =>
-							`Канал ${channelId}, ID - ${groupId} \n`
+						({ chatName, groupId }) =>
+							`Канал "${chatName}", ID - ${groupId} \n`
 				  )
 				: "Пусто"
 		}`;
 		const buttons = channels.map((ch) => [
 			{
-				text: `Удалить канал ${ch.channelId}`,
+				text: `Удалить канал "${ch.chatName}"`,
 				callback_data: `delete_channel_${ch.groupId}`,
 			},
 		]);
@@ -174,7 +186,7 @@ bot.on("callback_query", (callbackQuery) => {
 		} else {
 			bot.sendMessage(
 				msg.chat.id,
-				"Пожалуйста, отправьте команду в формате:\n/send <канал ID> <сообщение>"
+				"Пожалуйста, отправьте команду в формате:\n/send <канал название> <сообщение>"
 			);
 		}
 	}
@@ -189,7 +201,7 @@ bot.on("callback_query", (callbackQuery) => {
 			removeChannel(groupId); // Удаляем канал из списка
 			bot.sendMessage(
 				msg.chat.id,
-				`Канал с ID ${channel.channelId} был удалён и бот покинул группу.`
+				`Канал "${channel.chatName}" был удалён и бот покинул группу.`
 			);
 		} else {
 			bot.sendMessage(msg.chat.id, `Канал с ID ${groupId} не найден.`);
@@ -198,14 +210,14 @@ bot.on("callback_query", (callbackQuery) => {
 });
 
 // Обработка сообщений от менеджера (отправка в группу через кнопки)
-bot.onText(/\/send (\d+) (.+)/, (msg, match) => {
-	const channelId = match[1];
+bot.onText(/\/send (.+) (.+)/, (msg, match) => {
+	const chatName = match[1];
 	const message = match[2];
-	const channel = channels.find((ch) => ch.channelId == channelId);
+	const channel = channels.find((ch) => ch.chatName == chatName);
 	if (channel) {
 		bot.sendMessage(channel.groupId, message);
 	} else {
-		bot.sendMessage(msg.chat.id, `Канал ${channelId} не существует.`);
+		bot.sendMessage(msg.chat.id, `Канал "${chatName}" не существует.`);
 	}
 });
 
