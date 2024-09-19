@@ -1,16 +1,17 @@
 require("dotenv").config();
 const TelegramBot = require("node-telegram-bot-api");
-const express = require('express');
+const express = require("express");
 const app = express();
 const port = process.env.PORT || 3000;
 
-app.get('/', (req, res) => {
-    res.send('Telegram bot is running.');
+app.get("/", (req, res) => {
+	res.send("Telegram bot is running.");
 });
 
 app.listen(port, () => {
-    console.log(`Server is running on port ${port}`);
+	console.log(`Server is running on port ${port}`);
 });
+
 // Инициализация бота
 const bot = new TelegramBot(process.env.TELEGRAM_TOKEN, { polling: true });
 
@@ -51,7 +52,7 @@ function forwardToManager(chatName, messageText, username) {
 	if (managerId) {
 		bot.sendMessage(
 			managerId,
-			`Сообщение из чата "${chatName}" от пользователя ${obfuscatedUsername}: ${messageText}`
+			`${chatName} - ${obfuscatedUsername}: ${messageText}`
 		);
 	} else {
 		console.error("Ошибка: ID менеджера не установлен.");
@@ -69,7 +70,7 @@ const mainMenu = {
 				},
 			],
 			[{ text: "Информация о боте", callback_data: "bot_info" }],
-			[{ text: "Отправить сообщение", callback_data: "send_message" }],
+			[{ text: "Отправить сообщение", callback_data: "choose_channel" }],
 		],
 	},
 };
@@ -84,10 +85,10 @@ bot.on("my_chat_member", (msg) => {
 		addChannel(chatName, groupId);
 
 		if (managerId) {
-			// Уведомление менеджера
+			// Уведомление менеджера (без логирования ID)
 			bot.sendMessage(
 				managerId,
-				`Бот был добавлен в группу с ID ${groupId}. Канал "${chatName}" подключен.`
+				`Бот был добавлен в группу "${chatName}".`
 			);
 
 			// Уведомление группы
@@ -105,7 +106,7 @@ bot.on("my_chat_member", (msg) => {
 	}
 });
 
-// Обработка сообщений от участников групп
+// Обработка текстовых сообщений и медиа-контента
 bot.on("message", (msg) => {
 	if (
 		msg.new_chat_member ||
@@ -121,13 +122,60 @@ bot.on("message", (msg) => {
 		const channel = getCurrentChannel(groupId);
 
 		if (channel) {
-			// Пересылаем сообщение менеджеру
 			const username = msg.from.username || msg.from.first_name;
-			forwardToManager(
-				channel.chatName,
-				msg.text ?? "Неизвестный символ",
-				username
-			);
+
+			// Если сообщение содержит текст
+			if (msg.text) {
+				forwardToManager(channel.chatName, msg.text, username);
+			}
+
+			// Если сообщение содержит фото
+			if (msg.photo) {
+				const photoId = msg.photo[msg.photo.length - 1].file_id;
+				bot.getFileLink(photoId).then((link) => {
+					forwardToManager(
+						channel.chatName,
+						`Фото: ${link}`,
+						username
+					);
+				});
+			}
+
+			// Если сообщение содержит документ
+			if (msg.document) {
+				const documentId = msg.document.file_id;
+				bot.getFileLink(documentId).then((link) => {
+					forwardToManager(
+						channel.chatName,
+						`Документ: ${link}`,
+						username
+					);
+				});
+			}
+
+			// Если сообщение содержит голосовое сообщение
+			if (msg.voice) {
+				const voiceId = msg.voice.file_id;
+				bot.getFileLink(voiceId).then((link) => {
+					forwardToManager(
+						channel.chatName,
+						`Голосовое сообщение: ${link}`,
+						username
+					);
+				});
+			}
+
+			// Если сообщение содержит видеосообщение (кружок)
+			if (msg.video_note) {
+				const videoNoteId = msg.video_note.file_id;
+				bot.getFileLink(videoNoteId).then((link) => {
+					forwardToManager(
+						channel.chatName,
+						`Видеосообщение: ${link}`,
+						username
+					);
+				});
+			}
 		} else {
 			console.log(
 				"Сообщение не было отправлено: ID группы не найден в каналах."
@@ -187,48 +235,70 @@ bot.on("callback_query", (callbackQuery) => {
 		bot.sendMessage(msg.chat.id, info);
 	}
 
-	if (action === "send_message") {
-		if (!managerId) {
-			bot.sendMessage(
-				msg.chat.id,
-				"ID менеджера не установлен. Пожалуйста, используйте команду /start для настройки."
-			);
-		} else {
-			bot.sendMessage(
-				msg.chat.id,
-				"Пожалуйста, отправьте команду в формате:\n/send <канал название> <сообщение>"
-			);
-		}
+	// Отправка сообщения через кнопки
+	if (action === "choose_channel") {
+		const buttons = channels.map((ch) => [
+			{
+				text: `Отправить в "${ch.chatName}"`,
+				callback_data: `send_channel_${ch.groupId}`,
+			},
+		]);
+
+		bot.sendMessage(msg.chat.id, "Выберите канал для отправки сообщения:", {
+			reply_markup: {
+				inline_keyboard: buttons,
+			},
+		});
 	}
 
-	// Удаление канала при нажатии на кнопку
-	if (action.startsWith("delete_channel_")) {
+	// Когда выбран канал для отправки сообщения
+	if (action.startsWith("send_channel_")) {
 		const groupId = parseInt(action.split("_")[2], 10);
 		const channel = getCurrentChannel(groupId);
 
 		if (channel) {
-			bot.leaveChat(groupId); // Бот покидает группу
-			removeChannel(groupId); // Удаляем канал из списка
 			bot.sendMessage(
 				msg.chat.id,
-				`Канал "${channel.chatName}" был удалён и бот покинул группу.`
+				`Выбрали канал "${channel.chatName}". Напишите сообщение для отправки.`
 			);
-		} else {
-			bot.sendMessage(msg.chat.id, `Канал с ID ${groupId} не найден.`);
+
+			// Ожидаем сообщение для отправки в выбранный канал
+			bot.once("message", (message) => {
+				if (message.text) {
+					bot.sendMessage(groupId, message.text);
+					bot.sendMessage(msg.chat.id, "Сообщение отправлено.");
+				}
+
+				// Если сообщение содержит медиа-контент
+				if (message.photo) {
+					const photoId =
+						message.photo[message.photo.length - 1].file_id;
+					bot.sendPhoto(groupId, photoId);
+					bot.sendMessage(msg.chat.id, "Фото отправлено.");
+				}
+
+				if (message.voice) {
+					const voiceId = message.voice.file_id;
+					bot.sendVoice(groupId, voiceId);
+					bot.sendMessage(
+						msg.chat.id,
+						"Голосовое сообщение отправлено."
+					);
+				}
+
+				if (message.video_note) {
+					const videoNoteId = message.video_note.file_id;
+					bot.sendVideoNote(groupId, videoNoteId);
+					bot.sendMessage(msg.chat.id, "Видеосообщение отправлено.");
+				}
+			});
 		}
 	}
-});
 
-// Обработка сообщений от менеджера (отправка в группу через кнопки)
-bot.onText(/\/send (.+) (.+)/, (msg, match) => {
-	const chatName = match[1];
-	const message = match[2];
-	const channel = channels.find((ch) => ch.chatName == chatName);
-	if (channel) {
-		bot.sendMessage(channel.groupId, message);
-	} else {
-		bot.sendMessage(msg.chat.id, `Канал "${chatName}" не существует.`);
+	// Удаление канала
+	if (action.startsWith("delete_channel_")) {
+		const groupId = parseInt(action.split("_")[2], 10);
+		removeChannel(groupId);
+		bot.sendMessage(msg.chat.id, `Канал удалён.`);
 	}
 });
-
-console.log("Бот запущен");
