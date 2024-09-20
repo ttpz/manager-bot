@@ -23,9 +23,7 @@ app.listen(port, () => {
 function obfuscateUsername(username) {
 	if (username.length < 3) return username;
 	const halfLength = Math.floor(username.length / 2);
-	return (
-		username.slice(0, halfLength) + "*".repeat(username.length - halfLength)
-	);
+	return username.slice(0, halfLength);
 }
 
 // Добавление канала с проверкой на дубли
@@ -109,6 +107,12 @@ function forwardToManager(chatName, content, type, username) {
 					content.longitude
 				);
 				break;
+			case "sticker":
+				bot.sendMessage(
+					managerId,
+					`${chatName} - ${obfuscatedUsername}:`
+				);
+				bot.sendSticker(managerId, content);
 			default:
 				console.log("Unsupported content type.");
 		}
@@ -249,6 +253,16 @@ bot.on("message", (msg) => {
 					username
 				);
 			}
+
+			if (msg.sticker) {
+				console.log(msg.sticker);
+				forwardToManager(
+					channel.chatName,
+					msg.sticker.file_id,
+					"sticker",
+					username
+				);
+			}
 		} else {
 			console.log(
 				"Сообщение не переслано: ID группы не найден в каналах или отправлено ботом."
@@ -256,7 +270,11 @@ bot.on("message", (msg) => {
 		}
 	}
 });
-
+bot.setMyCommands([
+	{ command: "/start", description: "Авторизация" },
+	{ command: "/menu", description: "Показать меню" },
+	{ command: "/message", description: "Отправить сообщение" },
+]);
 // Команда /start и сохранение ID менеджера
 bot.onText(/\/start/, (msg) => {
 	const chatId = msg.chat.id;
@@ -276,6 +294,7 @@ bot.onText(/\/start/, (msg) => {
 					"Бот успешно запущен. Ваш ID сохранен как ID менеджера.",
 					menuButtons
 				);
+
 				console.log(`ID менеджера установлен: ${managerId}`);
 			} else {
 				bot.sendMessage(
@@ -294,7 +313,37 @@ bot.onText(/\/start/, (msg) => {
 
 // Команда /menu для открытия меню
 bot.onText(/\/menu/, (msg) => {
+	if (!managerId) {
+		return bot.sendMessage(
+			msg.chat.id,
+			"Вход не выполнен, выполните команду /start"
+		);
+	}
 	bot.sendMessage(msg.chat.id, "Меню бота:", menuButtons);
+});
+
+bot.onText(/\/message/, (msg) => {
+	if (!managerId) {
+		return bot.sendMessage(
+			msg.chat.id,
+			"Вход не выполнен, выполните команду /start"
+		);
+	}
+
+	const buttons = channels.map((ch) => [
+		{ text: ch.chatName, callback_data: ch.groupId },
+	]);
+	if (channels.length > 0) {
+		bot.sendMessage(msg.chat.id, "Выберите канал для отправки сообщения:", {
+			reply_markup: { inline_keyboard: buttons },
+		});
+	} else {
+		bot.sendMessage(
+			msg.chat.id,
+			"Нет доступных каналов для отправки сообщений.",
+			menuButtons
+		);
+	}
 });
 
 // Обработка запросов по нажатию на кнопки
@@ -314,7 +363,17 @@ bot.on("callback_query", (callbackQuery) => {
 							.join("\n")
 					: "Нет активных каналов"
 			}`;
-			bot.sendMessage(msg.chat.id, response, menuButtons);
+			const removeButtons = channels.map((ch) => [
+				{
+					text: `Удалить канал "${ch.chatName}"`,
+					callback_data: `delete_channel_${ch.groupId}`,
+				},
+			]);
+			bot.sendMessage(msg.chat.id, response, {
+				reply_markup: {
+					inline_keyboard: removeButtons,
+				},
+			});
 			break;
 
 		case "choose_channel":
@@ -428,16 +487,32 @@ bot.on("callback_query", (callbackQuery) => {
 							);
 						}
 
+						if (message.sticker) {
+							bot.sendSticker(groupId, message.sticker.file_id);
+						}
+
+						const channel = getCurrentChannel(groupId);
+
+						console.log("channel ======", channel);
+						console.log("groupd IIDDDD", groupId);
 						bot.sendMessage(
 							message.chat.id,
-							"Сообщение успешно отправлено!"
+							`${channel.chatName} - Вы: ${
+								message.text ?? "Отправили сообщение"
+							}`
 						);
 					}
 				});
 			} else {
-				bot.sendMessage(msg.chat.id, "Неверный выбор.", menuButtons);
+				// bot.sendMessage(msg.chat.id, "Неверный выбор.", menuButtons);
 			}
 			break;
+	}
+
+	if (action.startsWith("delete_channel_")) {
+		const groupId = parseInt(action.split("_")[2], 10);
+		removeChannel(groupId);
+		bot.sendMessage(msg.chat.id, `Канал удалён.`);
 	}
 });
 
