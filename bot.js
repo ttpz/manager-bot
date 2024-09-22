@@ -10,6 +10,7 @@ const bot = new TelegramBot(process.env.TELEGRAM_TOKEN, { polling: true });
 let managerId = null;
 let channels = [];
 const PIN_CODE = process.env.PIN_CODE;
+let currentChannel = null;
 
 app.get("/", (req, res) => {
 	res.send("Telegram bot is running.");
@@ -47,7 +48,7 @@ function removeChannel(groupId) {
 
 // Получение текущего канала
 function getCurrentChannel(groupId) {
-	return channels.find((channel) => channel.groupId === groupId);
+	return channels.find((channel) => channel.groupId == groupId);
 }
 
 // Пересылка сообщений менеджеру
@@ -123,6 +124,7 @@ function forwardToManager(chatName, content, type, username) {
 
 // Пересылка сообщений в канал
 function forwardToChannel(channelId, content, type) {
+	if (type === "text" && content.startsWith("/")) return;
 	switch (type) {
 		case "text":
 			bot.sendMessage(channelId, content);
@@ -185,127 +187,201 @@ bot.on("my_chat_member", (msg) => {
 		removeChannel(groupId);
 	}
 });
-// Обработка входящих сообщений от пользователей
-bot.on("message", (msg) => {
-	if (msg.chat.type === "group") {
-		const groupId = msg.chat.id;
-		const channel = getCurrentChannel(groupId); // Fetch the current channel
-		console.log(channels);
-		console.log(channel);
-		console.log(groupId);
-		console.log(msg);
-		// Проверяем, что сообщение отправлено пользователем, а не ботом
-		if (channel && !msg.from.is_bot) {
-			const username = msg.from.username || msg.from.first_name;
 
-			// Пересылаем сообщение менеджеру через бота
-			if (msg.text) {
-				forwardToManager(channel.chatName, msg.text, "text", username);
+// Основной обработчик всех сообщений
+bot.on("message", (message) => {
+	const chatName = message.chat.title || message.chat.username || "Unknown";
+	const username =
+		message.from.username || message.from.first_name || "Anonymous";
+
+	// 1. Сообщения из группы (если chat.type === "group") пересылаем менеджеру
+	if (message.chat.type === "group") {
+		// Проверяем, что сообщение пришло из группы, а не от бота
+		if (!message.from.is_bot) {
+			if (message.text) {
+				forwardToManager(chatName, message.text, "text", username);
 			}
 
-			if (msg.photo) {
-				const photo = msg.photo[msg.photo.length - 1].file_id;
-				forwardToManager(channel.chatName, photo, "photo", username);
+			if (message.photo) {
+				const photo = message.photo[message.photo.length - 1].file_id;
+				forwardToManager(chatName, photo, "photo", username);
 			}
 
-			if (msg.document) {
+			if (message.voice) {
 				forwardToManager(
-					channel.chatName,
-					msg.document.file_id,
-					"document",
-					username
-				);
-			}
-
-			if (msg.voice) {
-				forwardToManager(
-					channel.chatName,
-					msg.voice.file_id,
+					chatName,
+					message.voice.file_id,
 					"voice",
 					username
 				);
 			}
 
-			if (msg.video) {
+			if (message.video) {
 				forwardToManager(
-					channel.chatName,
-					msg.video.file_id,
+					chatName,
+					message.video.file_id,
 					"video",
 					username
 				);
 			}
 
-			if (msg.video_note) {
+			if (message.document) {
 				forwardToManager(
-					channel.chatName,
-					msg.video_note.file_id,
-					"video_note",
+					chatName,
+					message.document.file_id,
+					"document",
 					username
 				);
 			}
 
-			if (msg.location) {
-				const { latitude, longitude } = msg.location;
+			if (message.location) {
+				const { latitude, longitude } = message.location;
 				forwardToManager(
-					channel.chatName,
+					chatName,
 					{ latitude, longitude },
 					"location",
 					username
 				);
 			}
 
-			if (msg.sticker) {
-				console.log(msg.sticker);
+			if (message.sticker) {
 				forwardToManager(
-					channel.chatName,
-					msg.sticker.file_id,
+					chatName,
+					message.sticker.file_id,
 					"sticker",
 					username
 				);
 			}
-		} else {
-			console.log(
-				"Сообщение не переслано: ID группы не найден в каналах или отправлено ботом."
+		}
+		return; // Остановить дальнейшую обработку, если сообщение из группы
+	}
+
+	// 2. Сообщения от менеджера в текущий выбранный канал
+	if (currentChannel) {
+		if (message.text) {
+			forwardToChannel(currentChannel.groupId, message.text, "text");
+		}
+
+		if (message.photo) {
+			const photo = message.photo[message.photo.length - 1].file_id;
+			forwardToChannel(currentChannel.groupId, photo, "photo");
+		}
+
+		if (message.voice) {
+			forwardToChannel(
+				currentChannel.groupId,
+				message.voice.file_id,
+				"voice"
 			);
 		}
+
+		if (message.video) {
+			forwardToChannel(
+				currentChannel.groupId,
+				message.video.file_id,
+				"video"
+			);
+		}
+
+		if (message.document) {
+			forwardToChannel(
+				currentChannel.groupId,
+				message.document.file_id,
+				"document"
+			);
+		}
+
+		if (message.video_note) {
+			forwardToChannel(
+				currentChannel.groupId,
+				message.video_note.file_id,
+				"video_note"
+			);
+		}
+
+		if (message.location) {
+			const { latitude, longitude } = message.location;
+			forwardToChannel(
+				currentChannel.groupId,
+				{ latitude, longitude },
+				"location"
+			);
+		}
+
+		if (message.sticker) {
+			forwardToChannel(
+				currentChannel.groupId,
+				message.sticker.file_id,
+				"sticker"
+			);
+		}
+
+		// Подтверждение менеджеру, что сообщение отправлено в канал
+		bot.sendMessage(
+			message.chat.id,
+			`Сообщение отправлено в канал ${currentChannel.chatName}`
+		);
 	}
 });
+
 bot.setMyCommands([
 	{ command: "/start", description: "Авторизация" },
 	{ command: "/menu", description: "Показать меню" },
 	{ command: "/message", description: "Отправить сообщение" },
 ]);
+
 // Команда /start и сохранение ID менеджера
 bot.onText(/\/start/, (msg) => {
 	const chatId = msg.chat.id;
-	bot.sendMessage(chatId, "Введите PIN код для активации бота:", {
-		reply_markup: { force_reply: true },
-	});
+	bot.sendMessage(chatId, "Введите PIN код для активации бота:");
+
+	// Слушаем следующее сообщение для проверки PIN кода
 	bot.once("message", (message) => {
-		if (
-			message.reply_to_message &&
-			message.reply_to_message.text.includes("Введите PIN код")
-		) {
-			const pin = message.text.trim();
+		// Убеждаемся, что сообщение от того же пользователя
+		if (message.chat.id === chatId) {
+			const pin = message.text.trim(); // Ввод пользователя
+
+			// Проверяем PIN код
 			if (pin === PIN_CODE) {
-				managerId = chatId;
+				managerId = chatId; // Сохраняем ID менеджера
 				bot.sendMessage(
-					managerId,
+					chatId,
 					"Бот успешно запущен. Ваш ID сохранен как ID менеджера.",
 					menuButtons
 				);
-
 				console.log(`ID менеджера установлен: ${managerId}`);
 			} else {
+				// Отправляем ошибку при неправильном вводе
 				bot.sendMessage(
-					managerId,
+					chatId,
 					"Неправильный PIN код. Пожалуйста, попробуйте снова."
 				);
-				bot.sendMessage(
-					managerId,
-					"Введите PIN код для активации бота:",
-					{ reply_markup: { force_reply: true } }
-				);
+
+				// Запрашиваем ввод PIN кода снова
+				bot.sendMessage(chatId, "Введите PIN код для активации бота:");
+
+				// Повторно слушаем сообщение для нового PIN кода
+				bot.once("message", (newMessage) => {
+					if (newMessage.chat.id === chatId) {
+						const newPin = newMessage.text.trim();
+						if (newPin === PIN_CODE) {
+							managerId = chatId;
+							bot.sendMessage(
+								chatId,
+								"Бот успешно запущен. Ваш ID сохранен как ID менеджера.",
+								menuButtons
+							);
+							console.log(
+								`ID менеджера установлен: ${managerId}`
+							);
+						} else {
+							bot.sendMessage(
+								chatId,
+								"Неправильный PIN код. Пожалуйста, попробуйте снова."
+							);
+						}
+					}
+				});
 			}
 		}
 	});
@@ -323,34 +399,43 @@ bot.onText(/\/menu/, (msg) => {
 });
 
 bot.onText(/\/message/, (msg) => {
-	if (!managerId) {
-		return bot.sendMessage(
-			msg.chat.id,
-			"Вход не выполнен, выполните команду /start"
-		);
+	if (!channels.length) {
+		return bot.sendMessage(managerId, "Список каналов пуст");
 	}
-
-	const buttons = channels.map((ch) => [
-		{ text: ch.chatName, callback_data: ch.groupId },
+	console.log(channels);
+	const channelButtons = channels.map((channel) => [
+		{
+			text: channel.chatName, // Отображаемое имя канала
+			callback_data: `change_current_channel:${channel.groupId}`, // Уникальный ID канала
+		},
 	]);
-	if (channels.length > 0) {
-		bot.sendMessage(msg.chat.id, "Выберите канал для отправки сообщения:", {
-			reply_markup: { inline_keyboard: buttons },
-		});
-	} else {
-		bot.sendMessage(
-			msg.chat.id,
-			"Нет доступных каналов для отправки сообщений.",
-			menuButtons
-		);
-	}
+
+	bot.sendMessage(msg.chat.id, "Выберите канал для отправки сообщений:", {
+		reply_markup: {
+			inline_keyboard: channelButtons,
+		},
+	});
 });
 
-// Обработка запросов по нажатию на кнопки
 bot.on("callback_query", (callbackQuery) => {
 	const action = callbackQuery.data;
 	const msg = callbackQuery.message;
+	const chatId = callbackQuery.message.chat.id;
 
+	// Проверка типа действия change_current_channel
+	if (action.startsWith("change_current_channel")) {
+		console.log(action);
+		const channelId = action.split(":")[1]; // Извлекаем ID канала
+		currentChannel = getCurrentChannel(channelId); // Предполагаем, что getCurrentChannel(channelId) возвращает объект канала по ID
+		console.log(currentChannel);
+		// Сообщаем менеджеру, что канал был успешно выбран
+		bot.sendMessage(
+			chatId,
+			`Канал ${currentChannel.chatName} выбран для отправки сообщений.`
+		);
+	}
+
+	// Обработка других команд в callback_query
 	switch (action) {
 		case "show_channels":
 			const response = `Список каналов:\n${
@@ -376,143 +461,23 @@ bot.on("callback_query", (callbackQuery) => {
 			});
 			break;
 
-		case "choose_channel":
-			const buttons = channels.map((ch) => [
-				{ text: ch.chatName, callback_data: ch.groupId },
-			]);
-			if (channels.length > 0) {
-				bot.sendMessage(
-					msg.chat.id,
-					"Выберите канал для отправки сообщения:",
-					{
-						reply_markup: { inline_keyboard: buttons },
-					}
-				);
-			} else {
-				bot.sendMessage(
-					msg.chat.id,
-					"Нет доступных каналов для отправки сообщений.",
-					menuButtons
-				);
-			}
-			break;
-
 		case "bot_info":
 			bot.sendMessage(
 				msg.chat.id,
 				`Информация о боте:\nID менеджера: ${
 					managerId || "не установлен"
-				}`,
-				menuButtons
+				}`
 			);
 			break;
 
 		default:
-			// Проверка, является ли выбранный канал действительным
-			const selectedChannel = channels.find(
-				(ch) => ch.groupId.toString() === action
-			);
-			if (selectedChannel) {
-				const groupId = parseInt(action);
-
-				bot.sendMessage(
-					msg.chat.id,
-					"Введите сообщение для отправки в канал:",
-					{ reply_markup: { force_reply: true } }
-				);
-
-				bot.once("message", (message) => {
-					// Проверяем, что сообщение было ответом на запрос ввода
-					if (
-						message.reply_to_message &&
-						message.reply_to_message.text.includes(
-							"Введите сообщение"
-						)
-					) {
-						if (message.text) {
-							// Отправка текста
-							forwardToChannel(groupId, message.text, "text");
-						}
-
-						if (message.photo) {
-							// Отправка фотографии
-							const photo =
-								message.photo[message.photo.length - 1].file_id;
-							forwardToChannel(groupId, photo, "photo");
-						}
-
-						if (message.document) {
-							// Отправка документа
-							forwardToChannel(
-								groupId,
-								message.document.file_id,
-								"document"
-							);
-						}
-
-						if (message.voice) {
-							// Отправка голосового сообщения
-							forwardToChannel(
-								groupId,
-								message.voice.file_id,
-								"voice"
-							);
-						}
-
-						if (message.video) {
-							// Отправка видео
-							forwardToChannel(
-								groupId,
-								message.video.file_id,
-								"video"
-							);
-						}
-
-						if (message.video_note) {
-							// Отправка видео-записки
-							forwardToChannel(
-								groupId,
-								message.video_note.file_id,
-								"video_note"
-							);
-						}
-
-						if (message.location) {
-							// Отправка местоположения
-							const { latitude, longitude } = message.location;
-							forwardToChannel(
-								groupId,
-								{ latitude, longitude },
-								"location"
-							);
-						}
-
-						if (message.sticker) {
-							bot.sendSticker(groupId, message.sticker.file_id);
-						}
-
-						const channel = getCurrentChannel(groupId);
-
-						console.log("channel ======", channel);
-						console.log("groupd IIDDDD", groupId);
-						bot.sendMessage(
-							message.chat.id,
-							`${channel.chatName} - Вы: ${
-								message.text ?? "Отправили сообщение"
-							}`
-						);
-					}
-				});
-			} else {
-				// bot.sendMessage(msg.chat.id, "Неверный выбор.", menuButtons);
+			// Убираем часть, которая касается выбора канала для отправки сообщений
+			if (action.startsWith("delete_channel_")) {
+				const groupId = parseInt(action.split("_")[2], 10);
+				removeChannel(groupId);
+				bot.sendMessage(msg.chat.id, `Канал удалён.`);
 			}
 			break;
-	}
-
-	if (action.startsWith("delete_channel_")) {
-		const groupId = parseInt(action.split("_")[2], 10);
-		removeChannel(groupId);
-		bot.sendMessage(msg.chat.id, `Канал удалён.`);
 	}
 });
 
