@@ -332,6 +332,12 @@ bot.setMyCommands([
 
 // Команда /start и сохранение ID менеджера
 bot.onText(/\/start/, (msg) => {
+	if (msg.chat.type === "group")
+		return bot.sendMessage(
+			msg.chat.id,
+			"Ботом может управлять только менедежер"
+		);
+
 	const chatId = msg.chat.id;
 	bot.sendMessage(chatId, "Введите PIN код для активации бота:");
 
@@ -389,6 +395,11 @@ bot.onText(/\/start/, (msg) => {
 
 // Команда /menu для открытия меню
 bot.onText(/\/menu/, (msg) => {
+	if (msg.chat.type === "group")
+		return bot.sendMessage(
+			msg.chat.id,
+			"Ботом может управлять только менедежер"
+		);
 	if (!managerId) {
 		return bot.sendMessage(
 			msg.chat.id,
@@ -399,6 +410,11 @@ bot.onText(/\/menu/, (msg) => {
 });
 
 bot.onText(/\/message/, (msg) => {
+	if (msg.chat.type === "group")
+		return bot.sendMessage(
+			msg.chat.id,
+			"Ботом может управлять только менедежер"
+		);
 	if (!channels.length) {
 		return bot.sendMessage(managerId, "Список каналов пуст");
 	}
