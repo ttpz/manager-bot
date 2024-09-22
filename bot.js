@@ -10,6 +10,7 @@ const bot = new TelegramBot(process.env.TELEGRAM_TOKEN, { polling: true });
 let managerId = null;
 let channels = [];
 const PIN_CODE = process.env.PIN_CODE;
+let currentChat = null;
 
 app.get("/", (req, res) => {
 	res.send("Telegram bot is running.");
@@ -190,10 +191,7 @@ bot.on("message", (msg) => {
 	if (msg.chat.type === "group") {
 		const groupId = msg.chat.id;
 		const channel = getCurrentChannel(groupId); // Fetch the current channel
-		console.log(channels);
-		console.log(channel);
-		console.log(groupId);
-		console.log(msg);
+
 		// Проверяем, что сообщение отправлено пользователем, а не ботом
 		if (channel && !msg.from.is_bot) {
 			const username = msg.from.username || msg.from.first_name;
@@ -277,6 +275,13 @@ bot.setMyCommands([
 ]);
 // Команда /start и сохранение ID менеджера
 bot.onText(/\/start/, (msg) => {
+	if (msg.chat.type === "group") {
+		return bot.sendMessage(
+			msg.chat.id,
+			"Управлять ботом может только менеджер"
+		);
+	}
+
 	const chatId = msg.chat.id;
 	bot.sendMessage(chatId, "Введите PIN код для активации бота:", {
 		reply_markup: { force_reply: true },
@@ -313,6 +318,13 @@ bot.onText(/\/start/, (msg) => {
 
 // Команда /menu для открытия меню
 bot.onText(/\/menu/, (msg) => {
+	if (msg.chat.type === "group") {
+		return bot.sendMessage(
+			msg.chat.id,
+			"Управлять ботом может только менеджер"
+		);
+	}
+
 	if (!managerId) {
 		return bot.sendMessage(
 			msg.chat.id,
@@ -323,6 +335,13 @@ bot.onText(/\/menu/, (msg) => {
 });
 
 bot.onText(/\/message/, (msg) => {
+	if (msg.chat.type === "group") {
+		return bot.sendMessage(
+			msg.chat.id,
+			"Управлять ботом может только менеджер"
+		);
+	}
+
 	if (!managerId) {
 		return bot.sendMessage(
 			msg.chat.id,
@@ -414,94 +433,85 @@ bot.on("callback_query", (callbackQuery) => {
 			);
 			if (selectedChannel) {
 				const groupId = parseInt(action);
+				if (msg.chat.id !== groupId) {
+					bot.sendMessage(
+						groupId,
+						"Соединение установлено, начинайте общение"
+					);
+				}
 
-				bot.sendMessage(
-					msg.chat.id,
-					"Введите сообщение для отправки в канал:",
-					{ reply_markup: { force_reply: true } }
-				);
+				bot.on("message", (message) => {
+					if (!message.from.is_bot) return;
 
-				bot.once("message", (message) => {
-					// Проверяем, что сообщение было ответом на запрос ввода
-					if (
-						message.reply_to_message &&
-						message.reply_to_message.text.includes(
-							"Введите сообщение"
-						)
-					) {
-						if (message.text) {
-							// Отправка текста
-							forwardToChannel(groupId, message.text, "text");
-						}
+					if (message.text) {
+						// Отправка текста
+						forwardToChannel(groupId, message.text, "text");
+					}
 
-						if (message.photo) {
-							// Отправка фотографии
-							const photo =
-								message.photo[message.photo.length - 1].file_id;
-							forwardToChannel(groupId, photo, "photo");
-						}
+					if (message.photo) {
+						// Отправка фотографии
+						const photo =
+							message.photo[message.photo.length - 1].file_id;
+						forwardToChannel(groupId, photo, "photo");
+					}
 
-						if (message.document) {
-							// Отправка документа
-							forwardToChannel(
-								groupId,
-								message.document.file_id,
-								"document"
-							);
-						}
-
-						if (message.voice) {
-							// Отправка голосового сообщения
-							forwardToChannel(
-								groupId,
-								message.voice.file_id,
-								"voice"
-							);
-						}
-
-						if (message.video) {
-							// Отправка видео
-							forwardToChannel(
-								groupId,
-								message.video.file_id,
-								"video"
-							);
-						}
-
-						if (message.video_note) {
-							// Отправка видео-записки
-							forwardToChannel(
-								groupId,
-								message.video_note.file_id,
-								"video_note"
-							);
-						}
-
-						if (message.location) {
-							// Отправка местоположения
-							const { latitude, longitude } = message.location;
-							forwardToChannel(
-								groupId,
-								{ latitude, longitude },
-								"location"
-							);
-						}
-
-						if (message.sticker) {
-							bot.sendSticker(groupId, message.sticker.file_id);
-						}
-
-						const channel = getCurrentChannel(groupId);
-
-						console.log("channel ======", channel);
-						console.log("groupd IIDDDD", groupId);
-						bot.sendMessage(
-							message.chat.id,
-							`${channel.chatName} - Вы: ${
-								message.text ?? "Отправили сообщение"
-							}`
+					if (message.document) {
+						// Отправка документа
+						forwardToChannel(
+							groupId,
+							message.document.file_id,
+							"document"
 						);
 					}
+
+					if (message.voice) {
+						// Отправка голосового сообщения
+						forwardToChannel(
+							groupId,
+							message.voice.file_id,
+							"voice"
+						);
+					}
+
+					if (message.video) {
+						// Отправка видео
+						forwardToChannel(
+							groupId,
+							message.video.file_id,
+							"video"
+						);
+					}
+
+					if (message.video_note) {
+						// Отправка видео-записки
+						forwardToChannel(
+							groupId,
+							message.video_note.file_id,
+							"video_note"
+						);
+					}
+
+					if (message.location) {
+						// Отправка местоположения
+						const { latitude, longitude } = message.location;
+						forwardToChannel(
+							groupId,
+							{ latitude, longitude },
+							"location"
+						);
+					}
+
+					if (message.sticker) {
+						bot.sendSticker(groupId, message.sticker.file_id);
+					}
+
+					const channel = getCurrentChannel(groupId);
+					bot.sendMessage(
+						message.chat.id,
+						`${channel.chatName} - Вы: ${
+							message.text ?? "Отправили сообщение"
+						}`
+					);
 				});
 			} else {
 				// bot.sendMessage(msg.chat.id, "Неверный выбор.", menuButtons);
