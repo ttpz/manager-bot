@@ -147,6 +147,9 @@ function forwardToChannel(channelId, content, type) {
 		case "location":
 			bot.sendLocation(channelId, content.latitude, content.longitude);
 			break;
+		case "sticker":
+			bot.sendSticker(channelId, content);
+			break;
 		default:
 			console.log("Unsupported content type.");
 	}
@@ -199,6 +202,8 @@ bot.on("message", (message) => {
 		// Проверяем, что сообщение пришло из группы, а не от бота
 		if (!message.from.is_bot) {
 			if (message.text) {
+				if (PIN_CODE === message.text) return;
+
 				forwardToManager(chatName, message.text, "text", username);
 			}
 
@@ -259,6 +264,8 @@ bot.on("message", (message) => {
 	// 2. Сообщения от менеджера в текущий выбранный канал
 	if (currentChannel) {
 		if (message.text) {
+			if (PIN_CODE === message.text) return;
+
 			forwardToChannel(currentChannel.groupId, message.text, "text");
 		}
 
@@ -316,11 +323,15 @@ bot.on("message", (message) => {
 			);
 		}
 
-		// Подтверждение менеджеру, что сообщение отправлено в канал
 		bot.sendMessage(
 			message.chat.id,
 			`Сообщение отправлено в канал ${currentChannel.chatName}`
-		);
+		).then((sentMessage) => {
+			// Удалить сообщение через 0.5 секунд
+			setTimeout(() => {
+				bot.deleteMessage(message.chat.id, sentMessage.message_id);
+			}, 500); // 500 миллисекунд = 0.5 секунды
+		});
 	}
 });
 
@@ -415,10 +426,16 @@ bot.onText(/\/message/, (msg) => {
 			msg.chat.id,
 			"Ботом может управлять только менедежер"
 		);
+
+	if (!managerId) {
+		return bot.sendMessage(
+			msg.chat.id,
+			"Вход не выполнен, выполните команду /start"
+		);
+	}
 	if (!channels.length) {
 		return bot.sendMessage(managerId, "Список каналов пуст");
 	}
-	console.log(channels);
 	const channelButtons = channels.map((channel) => [
 		{
 			text: channel.chatName, // Отображаемое имя канала
@@ -449,6 +466,10 @@ bot.on("callback_query", (callbackQuery) => {
 			chatId,
 			`Канал ${currentChannel.chatName} выбран для отправки сообщений.`
 		);
+	}
+
+	if (action.startsWith("choose_channel")) {
+		bot.sendMessage(chatId, "/message");
 	}
 
 	// Обработка других команд в callback_query
