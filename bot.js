@@ -262,7 +262,7 @@ bot.on("message", (message) => {
 	}
 
 	// 2. Сообщения от менеджера в текущий выбранный канал
-	if (currentChannel) {
+	if (currentChannel && message.chat.type === "private") {
 		if (message.text) {
 			if (PIN_CODE === message.text) return;
 
