@@ -24,7 +24,7 @@ app.listen(port, () => {
 function obfuscateUsername(username) {
 	if (username.length < 3) return username;
 	const halfLength = Math.floor(username.length / 2);
-	return username.slice(0, halfLength);
+	return username.slice(0, halfLength) + " " + username.at(-1);
 }
 
 // Добавление канала с проверкой на дубли
@@ -194,8 +194,7 @@ bot.on("my_chat_member", (msg) => {
 // Основной обработчик всех сообщений
 bot.on("message", (message) => {
 	const chatName = message.chat.title || message.chat.username || "Unknown";
-	const username =
-		message.from.username || message.from.first_name || "Anonymous";
+	const username = message.from.first_name || "User";
 
 	// 1. Сообщения из группы (если chat.type === "group") пересылаем менеджеру
 	if (message.chat.type === "group") {
