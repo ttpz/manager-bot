@@ -54,6 +54,14 @@ function getCurrentChannel(groupId) {
 // Пересылка сообщений менеджеру
 function forwardToManager(chatName, content, type, username) {
 	const obfuscatedUsername = obfuscateUsername(username);
+	// Функция для замены упоминаний вида @username на @****
+	const blurMentions = (text) => text.replace(/@\w+/g, "@****");
+
+	// Обрабатываем текстовые сообщения, чтобы скрыть упоминания
+	if (type === "text") {
+		content = blurMentions(content);
+	}
+
 	if (managerId) {
 		switch (type) {
 			case "text":
@@ -125,6 +133,15 @@ function forwardToManager(chatName, content, type, username) {
 // Пересылка сообщений в канал
 function forwardToChannel(channelId, content, type) {
 	if (type === "text" && content.startsWith("/")) return;
+
+	// Функция для замены упоминаний вида @username на @****
+	const blurMentions = (text) => text.replace(/@\w+/g, "@****");
+
+	// Обрабатываем текстовые сообщения, чтобы скрыть упоминания
+	if (type === "text") {
+		content = blurMentions(content);
+	}
+
 	switch (type) {
 		case "text":
 			bot.sendMessage(channelId, content);
