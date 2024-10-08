@@ -24,7 +24,7 @@ app.listen(port, () => {
 function obfuscateUsername(username) {
 	if (username.length < 3) return username;
 	const halfLength = Math.floor(username.length / 2);
-	return username.slice(0, halfLength) + username.at(-1);
+	return username.slice(0, halfLength);
 }
 
 // Добавление канала с проверкой на дубли
